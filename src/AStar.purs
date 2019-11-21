@@ -180,6 +180,7 @@ loop = do
                       }
               pushFrontier (FrontierItem head)
               loop
+        when (isJust goalTile) $ modify_ (\(AStarState s) -> (AStarState s { pastExplored = reverse s.pastExplored }))
   where
   maybeDo = flip $ maybe (pure unit)
 

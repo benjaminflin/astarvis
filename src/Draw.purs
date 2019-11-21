@@ -10,6 +10,7 @@ import Data.Either
 import Data.Identity
 import Web.HTML (window)
 import Web.HTML.Window (innerWidth, innerHeight)
+import Window.DevicePixelRatio
 import Data.Tuple (Tuple(..))
 import Data.Int (toNumber)
 import AStar (AStarState(..), AStarResult, Tile(..))
@@ -55,10 +56,11 @@ getWindowDimensions = do
   window <- window
   width <- innerWidth window
   height <- innerHeight window
-  pure ({ width: toNumber width, height: toNumber height })
+  pixelRatio <- devicePixelRatio window
+  pure ({ width: toNumber width * pixelRatio, height: toNumber height * pixelRatio })
 
 getExpandedStates :: List (Set Tile) -> Int -> Either Error (Set Tile)
-getExpandedStates pastExplored iterations = case reverse pastExplored !! iterations of
+getExpandedStates pastExplored iterations = case pastExplored !! iterations of
   Just s -> Right s
   Nothing -> Left OutOfBoundsError
 
@@ -76,13 +78,13 @@ applyTransformations = do
   lift
     $ do
         translate ctx { translateX: dimensions.width / 2.0, translateY: dimensions.height / 2.0 }
-        scale ctx { scaleX: 20.0, scaleY: -20.0 }
+        scale ctx { scaleX: 40.0, scaleY: -40.0 }
         transform ctx world
 
 drawExpandedStates :: Set Tile -> ReaderT Config Effect Unit
 drawExpandedStates states = do
   { ctx } <- ask
-  lift $ setFillStyle ctx "#eb4034"
+  lift $ setFillStyle ctx "#F3C13A"
   lift $ foldl (\e (Tile x y) -> e <> fillRect ctx { x: toNumber x, y: toNumber y, width: 1.0, height: 1.0 }) (pure unit) states
 
 drawEndpoints :: ReaderT Config Effect Unit
@@ -92,12 +94,14 @@ drawEndpoints = do
     (AStarState state) = config.state
   let
     (Tile startX startY) = state.startTile
+  let
+    scale = 0.7
   lift
     $ do
-        setFillStyle ctx "#875F9A"
-        fillRect ctx { x: toNumber startX, y: toNumber startY, width: 1.0, height: 1.0 }
+        setFillStyle ctx "#eb4034"
+        fillRect ctx { x: toNumber startX + (1.0 - scale) / 2.0, y: toNumber startY + (1.0 - scale) / 2.0, width: scale, height: scale }
         setFillStyle ctx "#26A65B"
-        foldl (\e (Tile x y) -> e <> fillRect ctx { x: toNumber x, y: toNumber y, width: 1.0, height: 1.0 }) (pure unit) state.goalTiles
+        foldl (\e (Tile x y) -> e <> fillRect ctx { x: toNumber x + (1.0 - scale) / 2.0, y: toNumber y + (1.0 - scale) / 2.0, width: scale, height: scale }) (pure unit) state.goalTiles
 
 drawMap :: ReaderT Config Effect Unit
 drawMap = do
@@ -127,10 +131,10 @@ draw = do
     (AStarState state) = config.state
   states <- liftEither $ getExpandedStates state.pastExplored config.iterations
   lift applyTransformations
-  lift drawEndpoints
   lift drawMap
   lift $ drawExpandedStates states
   when config.renderPath $ lift drawPath
+  lift drawEndpoints
   where
   liftEither eth = case eth of
     Left e -> throwError e
