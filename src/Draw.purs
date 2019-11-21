@@ -5,30 +5,50 @@ import Graphics.Canvas
 import Effect
 import Data.Maybe
 import Control.Monad.Except.Trans
+import Control.Monad.Reader.Trans
 import Data.Either
+import Data.Identity
 import Web.HTML (window)
-import Web.HTML.Window (innerWidth, innerHeight, Window(..))
+import Web.HTML.Window (innerWidth, innerHeight)
 import Data.Tuple (Tuple(..))
 import Data.Int (toNumber)
+import AStar (AStarState(..), AStarResult, Tile(..))
+import Data.Set (Set(..))
+import Data.List
 
 data Error
   = CanvasNotFoundError
+  | OutOfBoundsError
 
 instance showErr :: Show Error where
   show CanvasNotFoundError = "CanvasNotFoundError"
+  show OutOfBoundsError = "OutOfBoundsError"
+
+type Params
+  = { iterations :: Int
+    , world :: Transform
+    , renderPath :: Boolean
+    , state :: AStarState
+    , result :: AStarResult
+    }
+
+type Config
+  = { state :: AStarState
+    , result :: AStarResult
+    , world :: Transform
+    , iterations :: Int
+    , renderPath :: Boolean
+    , ctx :: Context2D
+    , dimensions :: Dimensions
+    , canvas :: CanvasElement
+    }
 
 getCanvas :: ExceptT Error Effect CanvasElement
-getCanvas =
-  ExceptT
-    $ do
-        canvas <- getCanvasElementById "astar-vis"
-        case canvas of
-          Just canvas -> return canvas
-          Nothing -> throw CanvasNotFoundError
-  where
-  throw = pure <<< Left
-
-  return = pure <<< Right
+getCanvas = do
+  canvas <- lift $ getCanvasElementById "astar-vis"
+  case canvas of
+    Just canvas -> pure $ canvas
+    Nothing -> throwError CanvasNotFoundError
 
 getWindowDimensions :: Effect (Dimensions)
 getWindowDimensions = do
@@ -37,17 +57,91 @@ getWindowDimensions = do
   height <- innerHeight window
   pure ({ width: toNumber width, height: toNumber height })
 
-drawAStar :: Effect (Either Error Unit)
-drawAStar =
+getExpandedStates :: List (Set Tile) -> Int -> Either Error (Set Tile)
+getExpandedStates pastExplored iterations = case reverse pastExplored !! iterations of
+  Just s -> Right s
+  Nothing -> Left OutOfBoundsError
+
+setupCanvas :: CanvasElement -> Effect (Tuple Context2D Dimensions)
+setupCanvas canvas = do
+  dimensions <- getWindowDimensions
+  setCanvasDimensions canvas dimensions
+  ctx <- getContext2D canvas
+  clearRect ctx { x: 0.0, y: 0.0, width: dimensions.width, height: dimensions.height }
+  pure $ Tuple ctx dimensions
+
+applyTransformations :: ReaderT Config Effect Unit
+applyTransformations = do
+  { ctx, dimensions, world } <- ask
+  lift
+    $ do
+        translate ctx { translateX: dimensions.width / 2.0, translateY: dimensions.height / 2.0 }
+        scale ctx { scaleX: 20.0, scaleY: -20.0 }
+        transform ctx world
+
+drawExpandedStates :: Set Tile -> ReaderT Config Effect Unit
+drawExpandedStates states = do
+  { ctx } <- ask
+  lift $ setFillStyle ctx "#eb4034"
+  lift $ foldl (\e (Tile x y) -> e <> fillRect ctx { x: toNumber x, y: toNumber y, width: 1.0, height: 1.0 }) (pure unit) states
+
+drawEndpoints :: ReaderT Config Effect Unit
+drawEndpoints = do
+  config@{ ctx } <- ask
+  let
+    (AStarState state) = config.state
+  let
+    (Tile startX startY) = state.startTile
+  lift
+    $ do
+        setFillStyle ctx "#875F9A"
+        fillRect ctx { x: toNumber startX, y: toNumber startY, width: 1.0, height: 1.0 }
+        setFillStyle ctx "#26A65B"
+        foldl (\e (Tile x y) -> e <> fillRect ctx { x: toNumber x, y: toNumber y, width: 1.0, height: 1.0 }) (pure unit) state.goalTiles
+
+drawMap :: ReaderT Config Effect Unit
+drawMap = do
+  config@{ ctx } <- ask
+  let
+    (AStarState state) = config.state
+  lift
+    $ do
+        setFillStyle ctx "#757D75"
+        foldl (\e (Tile x y) -> e <> fillRect ctx { x: toNumber x, y: toNumber y, width: 1.0, height: 1.0 }) (pure unit) state.map
+
+drawPath :: ReaderT Config Effect Unit
+drawPath = do
+  config@{ ctx, result } <- ask
+  lift $ setFillStyle ctx "#1F4788"
+  result
+    `maybeDo`
+      \l ->
+        lift $ foldl (\e (Tuple (Tile x y) _) -> e <> fillRect ctx { x: toNumber x, y: toNumber y, width: 1.0, height: 1.0 }) (pure unit) l
+  where
+  maybeDo = flip $ maybe (pure unit)
+
+draw :: ExceptT Error (ReaderT Config Effect) Unit
+draw = do
+  config <- lift $ ask
+  let
+    (AStarState state) = config.state
+  states <- liftEither $ getExpandedStates state.pastExplored config.iterations
+  lift applyTransformations
+  lift drawEndpoints
+  lift drawMap
+  lift $ drawExpandedStates states
+  when config.renderPath $ lift drawPath
+  where
+  liftEither eth = case eth of
+    Left e -> throwError e
+    Right r -> lift $ ReaderT $ \_ -> pure r
+
+drawAStar :: Params -> Effect (Either Error Unit)
+drawAStar { state, result, iterations, world, renderPath } =
   runExceptT
     $ do
         canvas <- getCanvas
-        dimensions <- lift $ getWindowDimensions
-        lift $ setCanvasDimensions canvas dimensions
-        ctx <- lift $ getContext2D canvas
-        lift $ strokePath ctx
-          $ do
-              moveTo ctx 10.5 10.5
-              lineTo ctx 200.5 200.5
-              lineTo ctx 10.5 200.5
-              closePath ctx
+        (Tuple ctx dimensions) <- lift $ setupCanvas canvas
+        let
+          config = { canvas, ctx, dimensions, state, result, iterations, world, renderPath }
+        ExceptT $ runReaderT (runExceptT draw) config

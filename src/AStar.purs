@@ -52,11 +52,8 @@ derive instance eqFrontierItem :: Eq FrontierItem
 instance ordFrontierItem :: Ord FrontierItem where
   compare (FrontierItem a) (FrontierItem b) = compare a.cost b.cost
 
-data Wall
-  = Wall
-
 type AStarMap
-  = Map.Map Tile Wall
+  = Set.Set Tile
 
 type Frontier
   = Queue.PQueue Number FrontierItem
@@ -67,7 +64,7 @@ newtype AStarState
   , maxFrontier :: Int
   , explored :: Set.Set Tile
   , frontierSet :: Set.Set Tile
-  , pastFrontiers :: List (Set.Set Tile)
+  , pastExplored :: List (Set.Set Tile)
   , parents :: Map.Map Tile (Tuple Tile Action)
   , frontier :: Frontier
   , goalTiles :: List Tile
@@ -105,7 +102,7 @@ initFrontier = do
 getSuccessors :: Tile -> AStarMap -> List (Tuple Tile Action)
 getSuccessors (Tile x y) map =
   snd
-    <$> filter (fst >>> isNothing)
+    <$> filter (fst)
         ( getWall (x + 1) y Right
             : getWall (x - 1) y Left
             : getWall x (y + 1) Up
@@ -113,7 +110,7 @@ getSuccessors (Tile x y) map =
             : Nil
         )
   where
-  getWall x y a = Tuple (Map.lookup (Tile x y) map) (Tuple (Tile x y) a)
+  getWall x y a = Tuple (not $ Set.member (Tile x y) map) (Tuple (Tile x y) a)
 
 pushFrontier :: FrontierItem -> State AStarState Unit
 pushFrontier (FrontierItem head) = do
@@ -152,7 +149,7 @@ pushFrontier (FrontierItem head) = do
 
 loop :: State AStarState Unit
 loop = do
-  AStarState state@{ frontier, frontierSet, parents, goalTiles, statesExpanded, explored, maxFrontier, pastFrontiers } <- get
+  AStarState state@{ frontier, frontierSet, parents, goalTiles, statesExpanded, explored, maxFrontier, pastExplored } <- get
   Queue.head frontier
     `maybeDo`
       \(Tuple _ (FrontierItem head)) -> do
@@ -169,7 +166,7 @@ loop = do
                 , frontier = fromMaybe Queue.empty (Queue.tail frontier)
                 , parents = newParents
                 , foundGoalTile = goalTile
-                , pastFrontiers = frontierSet : pastFrontiers
+                , pastExplored = explored : pastExplored
                 }
         when (isNothing goalTile)
           $ do
