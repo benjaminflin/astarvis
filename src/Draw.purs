@@ -44,6 +44,9 @@ type Config
     , canvas :: CanvasElement
     }
 
+viewScale :: Number
+viewScale = 40.0
+
 getCanvas :: ExceptT Error Effect CanvasElement
 getCanvas = do
   canvas <- lift $ getCanvasElementById "astar-vis"
@@ -51,13 +54,15 @@ getCanvas = do
     Just canvas -> pure $ canvas
     Nothing -> throwError CanvasNotFoundError
 
-getWindowDimensions :: Effect (Dimensions)
-getWindowDimensions = do
+getWindowDimensions :: Boolean -> Effect (Dimensions)
+getWindowDimensions withPixelRatio = do
   window <- window
   width <- innerWidth window
   height <- innerHeight window
   pixelRatio <- devicePixelRatio window
-  pure ({ width: toNumber width * pixelRatio, height: toNumber height * pixelRatio })
+  let
+    r = if withPixelRatio then pixelRatio else 1.0
+  pure ({ width: toNumber width * r, height: toNumber height * r })
 
 getExpandedStates :: List (Set Tile) -> Int -> Either Error (Set Tile)
 getExpandedStates pastExplored iterations = case pastExplored !! iterations of
@@ -66,7 +71,7 @@ getExpandedStates pastExplored iterations = case pastExplored !! iterations of
 
 setupCanvas :: CanvasElement -> Effect (Tuple Context2D Dimensions)
 setupCanvas canvas = do
-  dimensions <- getWindowDimensions
+  dimensions <- getWindowDimensions true
   setCanvasDimensions canvas dimensions
   ctx <- getContext2D canvas
   clearRect ctx { x: 0.0, y: 0.0, width: dimensions.width, height: dimensions.height }
@@ -78,8 +83,16 @@ applyTransformations = do
   lift
     $ do
         translate ctx { translateX: dimensions.width / 2.0, translateY: dimensions.height / 2.0 }
-        scale ctx { scaleX: 40.0, scaleY: -40.0 }
+        scale ctx { scaleX: viewScale, scaleY: -viewScale }
         transform ctx world
+
+inverseView :: Vector2 -> Effect Vector2
+inverseView vec = do
+  { width, height } <- getWindowDimensions false
+  pure $ { x: (vec.x - width / 2.0) / (viewScale / 2.0), y: (vec.y - height / 2.0) / (-viewScale / 2.0) }
+
+type Vector2
+  = { x :: Number, y :: Number }
 
 drawExpandedStates :: Set Tile -> ReaderT Config Effect Unit
 drawExpandedStates states = do

@@ -24,10 +24,12 @@ import Web.DOM.Element (toEventTarget)
 import Web.DOM.NonElementParentNode (getElementById)
 import Web.Event.EventTarget (addEventListener, eventListener, EventTarget, EventListener)
 import Web.Event.Event
+import Debug.Trace
 
 type Elements
   = { playButton :: Element
     , drawButton :: Element
+    , eraseButton :: Element
     , moveButton :: Element
     , resetButton :: Element
     , canvas :: Element
@@ -36,17 +38,26 @@ type Elements
 type Listeners
   = { playListener :: EventListener
     , drawListener :: EventListener
+    , eraseListener :: EventListener
     , moveListener :: EventListener
     , resetListener :: EventListener
-    , canvasListener :: EventListener
+    , canvasMouseDownListener :: EventListener
+    , canvasMouseMoveListener :: EventListener
+    , canvasMouseUpListener :: EventListener
     }
 
+data EventT
+  = MouseDown
+  | MouseMove
+  | MouseUp
+
 data Emitted
-  = Play Element Event
-  | Draw Element Event
-  | Move Element Event
-  | Reset Element Event
-  | Canvas Element Event
+  = Play Elements Event
+  | Draw Elements Event
+  | Erase Elements Event
+  | Move Elements Event
+  | Reset Elements Event
+  | Canvas Elements EventT Event
 
 getElement :: String -> MaybeT Effect Element
 getElement id =
@@ -55,45 +66,56 @@ getElement id =
     documentHTML <- document windowHTML
     getElementById id $ toNonElementParentNode documentHTML
 
-getButtons :: MaybeT Effect Elements
-getButtons = do
+getElements :: MaybeT Effect Elements
+getElements = do
   playButton <- getElement "play"
   drawButton <- getElement "draw"
+  eraseButton <- getElement "erase"
   moveButton <- getElement "move"
   resetButton <- getElement "reset"
   canvas <- getElement "astar-vis"
   pure
     $ { playButton
       , drawButton
+      , eraseButton
       , moveButton
       , resetButton
       , canvas
       }
 
 makeListeners :: Elements -> Emitter Effect Emitted Unit -> Effect Listeners
-makeListeners { playButton, drawButton, moveButton, resetButton, canvas } emitter = do
-  playListener <- makeListener $ Play playButton
-  drawListener <- makeListener $ Draw drawButton
-  moveListener <- makeListener $ Move moveButton
-  resetListener <- makeListener $ Reset resetButton
-  canvasListener <- makeListener $ Canvas canvas
+makeListeners els emitter = do
+  playListener <- makeListener $ Play els
+  drawListener <- makeListener $ Draw els
+  eraseListener <- makeListener $ Erase els
+  moveListener <- makeListener $ Move els
+  resetListener <- makeListener $ Reset els
+  canvasMouseDownListener <- makeListener $ Canvas els MouseDown
+  canvasMouseMoveListener <- makeListener $ Canvas els MouseMove
+  canvasMouseUpListener <- makeListener $ Canvas els MouseUp
   pure
     $ { playListener
       , drawListener
+      , eraseListener
       , moveListener
       , resetListener
-      , canvasListener
+      , canvasMouseDownListener
+      , canvasMouseMoveListener
+      , canvasMouseUpListener
       }
   where
   makeListener f = eventListener $ emit emitter <<< f
 
 attachListeners :: Elements -> Listeners -> Emitter Effect Emitted Unit -> Effect Unit
-attachListeners { playButton, drawButton, moveButton, resetButton, canvas } { playListener, drawListener, moveListener, resetListener, canvasListener } emitter = do
+attachListeners { playButton, drawButton, eraseButton, moveButton, resetButton, canvas } { playListener, drawListener, eraseListener, moveListener, resetListener, canvasMouseDownListener, canvasMouseMoveListener, canvasMouseUpListener } emitter = do
   addListener (EventType "click") playListener playButton
   addListener (EventType "click") drawListener drawButton
+  addListener (EventType "click") eraseListener eraseButton
   addListener (EventType "click") moveListener moveButton
   addListener (EventType "click") resetListener resetButton
-  addListener (EventType "click") canvasListener canvas
+  addListener (EventType "mousedown") canvasMouseDownListener canvas
+  addListener (EventType "mousemove") canvasMouseMoveListener canvas
+  addListener (EventType "mouseup") canvasMouseUpListener canvas
   where
   addListener eventType listener el = addEventListener eventType listener false (toEventTarget el)
 
@@ -101,9 +123,9 @@ producer :: forall m. MonadAff m => Producer Emitted m Unit
 producer =
   produce' \emitter ->
     runMaybeT_ do
-      btns <- getButtons
-      listeners <- lift $ makeListeners btns emitter
-      lift $ attachListeners btns listeners emitter
+      els <- getElements
+      listeners <- lift $ makeListeners els emitter
+      lift $ attachListeners els listeners emitter
   where
   runMaybeT_ = void <<< runMaybeT
 
