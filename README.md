@@ -29,8 +29,14 @@ npm
 ```
 npx bower install
 ```
+5. If running for the first time:
+  
+```
+yarn build
+npm run build
+```
 
-5. Run the local server:
+6. Run the local server:
 
 ```
 yarn start
