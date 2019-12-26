@@ -1,55 +1,36 @@
 module UI where
 
-import Prelude
-import Control.Coroutine
+import Prelude (Unit, bind, void, ($), (<$>), (<<<))
+import Control.Coroutine (Producer)
 import Control.Coroutine.Aff (produce', emit, Emitter)
-import Control.Monad.Rec.Class (class MonadRec)
-import Control.Monad.Maybe.Trans
-import Control.Monad.Rec.Class (forever)
-import Control.Parallel.Class (class Parallel)
-import Control.Monad.State.Trans (StateT, runStateT)
-import Data.List
-import Data.Tuple
-import Data.Maybe
-import Effect
-import Effect.Aff
-import Effect.Aff.Class
-import Effect.Class (liftEffect)
-import Effect.Console (log)
+import Control.Monad.Maybe.Trans (MaybeT(..), lift, runMaybeT)
+import Data.List (List(..), zip, (:))
+import Data.Tuple (Tuple(..), uncurry)
+import Data.Maybe (Maybe)
+import Effect (Effect)
+import Effect.Aff.Class (class MonadAff)
 import Web.HTML (window)
 import Web.HTML.Window (document)
 import Web.HTML.HTMLDocument (toNonElementParentNode)
-import Web.DOM (Element)
+import Web.DOM as DOM
 import Web.DOM.Element (toEventTarget)
 import Web.DOM.NonElementParentNode (getElementById)
-import Web.Event.EventTarget (addEventListener, eventListener, EventTarget, EventListener)
-import Web.Event.Event
-import Debug.Trace
+import Web.Event.EventTarget (EventListener, addEventListener, eventListener)
+import Web.Event.Event (Event, EventType(..))
+import Record.Extra (mapRecord, sequenceRecord, zipRecord)
+import Data.Traversable (sequence)
+
+type ElementMap a
+  = { play :: a
+    , draw :: a
+    , erase :: a
+    , move :: a
+    , reset :: a
+    , canvas :: a
+    }
 
 type Elements
-  = { playButton :: Element
-    , drawButton :: Element
-    , eraseButton :: Element
-    , moveButton :: Element
-    , resetButton :: Element
-    , canvas :: Element
-    }
-
-type Listeners
-  = { playListener :: EventListener
-    , drawListener :: EventListener
-    , eraseListener :: EventListener
-    , moveListener :: EventListener
-    , resetListener :: EventListener
-    , canvasMouseDownListener :: EventListener
-    , canvasMouseMoveListener :: EventListener
-    , canvasMouseUpListener :: EventListener
-    }
-
-data EventT
-  = MouseDown
-  | MouseMove
-  | MouseUp
+  = ElementMap DOM.Element
 
 data Emitted
   = Play Elements Event
@@ -57,80 +38,65 @@ data Emitted
   | Erase Elements Event
   | Move Elements Event
   | Reset Elements Event
-  | Canvas Elements EventT Event
+  | MouseMove Elements Event
 
-getElement :: String -> MaybeT Effect Element
-getElement id =
-  MaybeT do
-    windowHTML <- window
-    documentHTML <- document windowHTML
-    getElementById id $ toNonElementParentNode documentHTML
+fromId :: String -> Effect (Maybe DOM.Element)
+fromId id = do
+  windowHTML <- window
+  documentHTML <- document windowHTML
+  getElementById id $ toNonElementParentNode documentHTML
 
-getElements :: MaybeT Effect Elements
-getElements = do
-  playButton <- getElement "play"
-  drawButton <- getElement "draw"
-  eraseButton <- getElement "erase"
-  moveButton <- getElement "move"
-  resetButton <- getElement "reset"
-  canvas <- getElement "astar-vis"
-  pure
-    $ { playButton
-      , drawButton
-      , eraseButton
-      , moveButton
-      , resetButton
-      , canvas
-      }
+fromIds :: ElementMap String -> MaybeT Effect Elements
+fromIds ids = sequenceRecord $ mapRecord (MaybeT <<< fromId) ids
 
-makeListeners :: Elements -> Emitter Effect Emitted Unit -> Effect Listeners
-makeListeners els emitter = do
-  playListener <- makeListener $ Play els
-  drawListener <- makeListener $ Draw els
-  eraseListener <- makeListener $ Erase els
-  moveListener <- makeListener $ Move els
-  resetListener <- makeListener $ Reset els
-  canvasMouseDownListener <- makeListener $ Canvas els MouseDown
-  canvasMouseMoveListener <- makeListener $ Canvas els MouseMove
-  canvasMouseUpListener <- makeListener $ Canvas els MouseUp
-  pure
-    $ { playListener
-      , drawListener
-      , eraseListener
-      , moveListener
-      , resetListener
-      , canvasMouseDownListener
-      , canvasMouseMoveListener
-      , canvasMouseUpListener
-      }
+makeListeners :: ElementMap String -> Elements -> Emitter Effect Emitted Unit -> Effect (ElementMap (List EventListener))
+makeListeners ids domElementMap emitter = sequenceRecord $ mapRecord toListeners ids
   where
-  makeListener f = eventListener $ emit emitter <<< f
+  toListeners id = sequence $ listen <<< (_ $ domElementMap) <$> (toConstructorList id)
 
-attachListeners :: Elements -> Listeners -> Emitter Effect Emitted Unit -> Effect Unit
-attachListeners { playButton, drawButton, eraseButton, moveButton, resetButton, canvas } { playListener, drawListener, eraseListener, moveListener, resetListener, canvasMouseDownListener, canvasMouseMoveListener, canvasMouseUpListener } emitter = do
-  addListener (EventType "click") playListener playButton
-  addListener (EventType "click") drawListener drawButton
-  addListener (EventType "click") eraseListener eraseButton
-  addListener (EventType "click") moveListener moveButton
-  addListener (EventType "click") resetListener resetButton
-  addListener (EventType "mousedown") canvasMouseDownListener canvas
-  addListener (EventType "mousemove") canvasMouseMoveListener canvas
-  addListener (EventType "mouseup") canvasMouseUpListener canvas
+  toConstructorList id = case id of
+    "play" -> (Play : Nil)
+    "draw" -> (Draw : Nil)
+    "erase" -> (Erase : Nil)
+    "move" -> (Move : Nil)
+    "reset" -> (Reset : Nil)
+    "astar-vis" -> (MouseMove : Nil)
+    _ -> Nil
+
+  listen = eventListener <<< (emit emitter <<< _)
+
+attachListeners :: ElementMap ({ listeners :: List EventListener, id :: String, domElement :: DOM.Element }) -> Effect Unit
+attachListeners elements = void $ sequenceRecord $ mapRecord attachAll elements
   where
-  addListener eventType listener el = addEventListener eventType listener false (toEventTarget el)
+  attachAll { domElement, listeners, id } = sequence $ uncurry (attach domElement) <$> (zip listeners $ toEventTypes id)
+
+  attach domElement listener eventType = addEventListener eventType listener false (toEventTarget domElement)
+
+  toEventTypes id = case id of
+    "astar-vis" -> EventType "mousemove" : Nil
+    _ -> EventType "click" : Nil
 
 producer :: forall m. MonadAff m => Producer Emitted m Unit
 producer =
   produce' \emitter ->
     runMaybeT_ do
-      els <- getElements
-      listeners <- lift $ makeListeners els emitter
-      lift $ attachListeners els listeners emitter
+      domElementMap <- fromIds ids
+      listeners <- lift $ makeListeners ids domElementMap emitter
+      let
+        zipped = zipRecordWith createRecord listeners $ zipRecord ids domElementMap
+      lift $ attachListeners zipped
   where
   runMaybeT_ = void <<< runMaybeT
 
-makeConsumer :: forall m. MonadAff m => (Emitted -> m Unit) -> Consumer Emitted m Unit
-makeConsumer changeState = forever $ lift <<< changeState =<< await
+  createRecord listeners (Tuple id domElement) = { listeners, id, domElement }
 
-startUI :: forall s. Consumer Emitted (StateT s Aff) Unit -> s -> Effect Unit
-startUI consumer = launchAff_ <<< (runStateT $ runProcess $ consumer `pullFrom` producer)
+  zipRecordWith fn r1 r2 = mapRecord (uncurry fn) $ zipRecord r1 r2
+
+  ids =
+    { play: "play"
+    , draw: "draw"
+    , erase: "erase"
+    , move: "move"
+    , reset: "reset"
+    , canvas: "astar-vis"
+    }
