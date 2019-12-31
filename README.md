@@ -17,7 +17,7 @@ git clone https://github.com/benjaminflin/astar-vis.git
 cd astar-vis
 ```
 
-1. Install javascript dependencies using yarn or :
+1. Install javascript dependencies using yarn:
 
 ```
 yarn
