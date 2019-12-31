@@ -1,19 +1,17 @@
 module AStar where
 
 import Prelude
-import Control.Coroutine (Producer, producer)
-import Control.Coroutine.Aff (Emitter(..), close, emit, produce')
+import Control.Coroutine (Producer)
+import Control.Coroutine.Aff (close, emit, produce')
 import Control.Monad.Loops (whileM_)
-import Control.Monad.Maybe.Trans (lift, runMaybeT)
+import Control.Monad.Maybe.Trans (lift)
 import Control.Monad.RWS (RWST, ask, evalRWST)
-import Control.Monad.Rec.Class (Step(..), forever, tailRecM)
-import Control.Monad.State (State, StateT(..), get, modify_, put, runState)
+import Control.Monad.State (get, modify_)
 import Data.Either as Either
 import Data.Int (toNumber)
-import Data.List (List(..), filter, foldl, reverse, (:))
+import Data.List (List(..), filter, foldl, (:))
 import Data.List.NonEmpty as NonEmptyList
-import Data.List.Types (NonEmptyList(..), toList)
-import Data.Map as Map
+import Data.List.Types (NonEmptyList, toList)
 import Data.Maybe (Maybe(..), fromMaybe, maybe)
 import Data.Ord (abs)
 import Data.PQueue as PQueue
@@ -21,7 +19,6 @@ import Data.Set as Set
 import Data.Tuple (Tuple(..), fst, snd)
 import Effect (Effect)
 import Effect.Aff.Class (class MonadAff)
-import Effect.Class (liftEffect)
 import Global (infinity)
 
 data Action

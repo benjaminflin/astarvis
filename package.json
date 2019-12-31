@@ -4,13 +4,15 @@
   "main": "index.js",
   "license": "MIT",
   "scripts": {
-    "start": "concurrently \"pulp -w build -O --to index.js\" \"parcel index.html -p 3000\"",
-    "build": "pulp build -O --to index.js"
+    "dev": "concurrently \"spago build --watch\" \"parcel index.html\"",
+    "start": "parcel index.html"
   },
   "devDependencies": {
     "bower": "^1.8.8",
     "concurrently": "^5.0.0",
-    "parcel": "^1.12.4",
-    "pulp": "^13.0.0"
+    "parcel-bundler": "^1.12.4",
+    "pulp": "^13.0.0",
+    "purescript": "^0.13.5",
+    "spago": "^0.13.0"
   }
 }
