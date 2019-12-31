@@ -1,15 +1,27 @@
 module AStar where
 
 import Prelude
-import Data.List (List(..), filter, foldl, reverse, (:))
-import Data.Maybe (Maybe(..), fromMaybe, isJust, isNothing, maybe)
-import Data.Map as Map
-import Data.Set as Set
-import Data.PQueue as Queue
-import Control.Monad.State (State, get, modify_, put)
-import Data.Tuple (Tuple(..), fst, snd)
+import Control.Coroutine (Producer, producer)
+import Control.Coroutine.Aff (Emitter(..), close, emit, produce')
+import Control.Monad.Loops (whileM_)
+import Control.Monad.Maybe.Trans (lift, runMaybeT)
+import Control.Monad.RWS (RWST, ask, evalRWST)
+import Control.Monad.Rec.Class (Step(..), forever, tailRecM)
+import Control.Monad.State (State, StateT(..), get, modify_, put, runState)
+import Data.Either as Either
 import Data.Int (toNumber)
+import Data.List (List(..), filter, foldl, reverse, (:))
+import Data.List.NonEmpty as NonEmptyList
+import Data.List.Types (NonEmptyList(..), toList)
+import Data.Map as Map
+import Data.Maybe (Maybe(..), fromMaybe, maybe)
 import Data.Ord (abs)
+import Data.PQueue as PQueue
+import Data.Set as Set
+import Data.Tuple (Tuple(..), fst, snd)
+import Effect (Effect)
+import Effect.Aff.Class (class MonadAff)
+import Effect.Class (liftEffect)
 import Global (infinity)
 
 data Action
@@ -21,30 +33,32 @@ data Action
 
 derive instance eqAction :: Eq Action
 
-instance showAction :: Show Action where
-  show Up = "Up"
-  show Down = "Down"
-  show Left = "Left"
-  show Right = "Right"
-  show None = "None"
-
 data Tile
   = Tile Int Int
+
+instance showTile :: Show Tile where
+  show (Tile x y) = "Tile " <> show x <> ", " <> show y
 
 derive instance eqTile :: Eq Tile
 
 derive instance ordTile :: Ord Tile
 
-instance showTile :: Show Tile where
-  show (Tile x y) = "Tile " <> show x <> " " <> show y
+type AStarMap
+  = Set.Set Tile
+
+type Frontier
+  = Tuple (PQueue.PQueue Number FrontierItem) (Set.Set Tile)
+
+type Explored
+  = Set.Set Tile
+
+type Path
+  = NonEmptyList (Tuple Tile Action)
 
 newtype FrontierItem
   = FrontierItem
   { cost :: Number
-  , action :: Action
-  , childTile :: Tile
-  , parentTile :: Maybe Tile
-  , depth :: Int
+  , path :: Path
   }
 
 derive instance eqFrontierItem :: Eq FrontierItem
@@ -52,157 +66,129 @@ derive instance eqFrontierItem :: Eq FrontierItem
 instance ordFrontierItem :: Ord FrontierItem where
   compare (FrontierItem a) (FrontierItem b) = compare a.cost b.cost
 
-type AStarMap
-  = Set.Set Tile
-
-type Frontier
-  = Queue.PQueue Number FrontierItem
-
 type AStarState
   = { statesExpanded :: Int
     , maxFrontier :: Int
-    , explored :: Set.Set Tile
-    , frontierSet :: Set.Set Tile
-    , pastExplored :: List (Set.Set Tile)
-    , parents :: Map.Map Tile (Tuple Tile Action)
+    , explored :: Explored
     , frontier :: Frontier
-    , goalTiles :: List Tile
-    , foundGoalTile :: Maybe Tile
+    }
+
+type AStarParams
+  = { map :: AStarMap
     , startTile :: Tile
-    , heuristic :: List Tile -> Tile -> Number
-    , map :: AStarMap
+    , goalTiles :: NonEmptyList Tile
+    , heuristic :: NonEmptyList Tile -> Tile -> Number
     }
 
 type AStarResult
-  = Maybe (List (Tuple Tile Action))
+  = Maybe Path
 
-initFrontier :: State AStarState Unit
-initFrontier = do
-  state@{ heuristic, startTile, frontier, goalTiles, frontierSet } <- get
-  let
-    cost = heuristic goalTiles startTile
-  let
-    frontierItem =
-      ( FrontierItem
-          { cost
-          , action: None
-          , childTile: startTile
-          , parentTile: Nothing
-          , depth: 0
-          }
-      )
-  put
-    state
-      { frontier = Queue.insert cost frontierItem frontier
-      , frontierSet = Set.insert startTile frontierSet
-      }
+type AStarEffect a
+  = RWST AStarParams Unit AStarState Effect a
 
-getSuccessors :: Tile -> AStarMap -> List (Tuple Tile Action)
-getSuccessors (Tile x y) map =
-  snd
-    <$> filter (fst)
-        ( wall (x + 1) y Right
-            : wall (x - 1) y Left
-            : wall x (y + 1) Up
-            : wall x (y - 1) Down
-            : Nil
-        )
+front :: Frontier -> Maybe FrontierItem
+front (Tuple queue _) = snd <$> PQueue.head queue
+
+push :: Frontier -> FrontierItem -> Frontier
+push (Tuple queue set) (FrontierItem i) = Tuple (PQueue.insert i.cost (FrontierItem i) queue) (Set.insert (head (FrontierItem i)) set)
+
+member :: Tile -> Frontier -> Boolean
+member i (Tuple _ set) = Set.member i set
+
+head :: FrontierItem -> Tile
+head (FrontierItem i) = fst $ NonEmptyList.head i.path
+
+goalTest :: NonEmptyList Tile -> Tile -> Boolean
+goalTest goals tile = foldl (\found goal -> (tile == goal) || found) false goals
+
+back :: Frontier -> Frontier
+back (Tuple queue set) = Tuple (fromMaybe PQueue.empty $ PQueue.tail queue) (maybe set (flip Set.delete set) (head <$> snd <$> PQueue.head queue))
+
+size :: Frontier -> Int
+size (Tuple _ set) = Set.size set
+
+init :: AStarEffect Unit
+init = do
+  { startTile, heuristic, goalTiles } <- ask
+  let
+    item =
+      FrontierItem
+        { cost: heuristic goalTiles startTile
+        , path: NonEmptyList.singleton (Tuple startTile None)
+        }
+  modify_ \state -> state { frontier = push state.frontier item }
+
+successors :: Tile -> List (Tuple Tile Action)
+successors (Tile x y) = (makePair (x - 1) y Left) : (makePair (x + 1) y Right) : (makePair x (y + 1) Up) : (makePair x (y - 1) Down) : Nil
   where
-  wall x y a = Tuple (not $ Set.member (Tile x y) map) (Tuple (Tile x y) a)
+  makePair x' y' a = Tuple (Tile x' y') a
 
-pushFrontier :: FrontierItem -> State AStarState Unit
-pushFrontier (FrontierItem head) = do
-  state@{ map, goalTiles, heuristic, frontier, explored, frontierSet } <- get
+explore :: FrontierItem -> AStarEffect Unit
+explore (FrontierItem item) = do
+  { map, heuristic, goalTiles } <- ask
+  { explored, frontier } <- get
   let
-    succs = (filter (fst >>> \tile -> not (Set.member tile explored) && not (Set.member tile frontierSet)) (getSuccessors head.childTile map))
+    check = \tile -> not (Set.member tile map) && not (Set.member tile explored) && not (member tile frontier)
   let
-    newFrontier =
-      foldl
-        ( \frontier (Tuple tile action) ->
-            let
-              cost = 3.0 * (heuristic goalTiles tile) + (toNumber head.depth + 1.0)
-
-              frontierItem =
-                ( FrontierItem
-                    { cost
-                    , action
-                    , childTile: tile
-                    , parentTile: Just head.childTile
-                    , depth: head.depth + 1
-                    }
-                )
-            in
-              (Queue.insert cost frontierItem frontier)
-        )
-        frontier
-        succs
+    succs =
+      filter
+        (check <<< fst)
+        (successors $ head (FrontierItem item))
   let
-    newFrontierSet = foldl (flip Set.insert) frontierSet (fst <$> succs)
-  put
-    state
-      { frontier = newFrontier
-      , frontierSet = newFrontierSet
-      }
+    items = (\succ -> FrontierItem { cost: (heuristic goalTiles (fst succ)) + (toNumber $ NonEmptyList.length item.path + 1), path: (NonEmptyList.cons succ item.path) }) <$> succs
+  modify_ _ { frontier = foldl push frontier items }
 
-loop :: State AStarState Unit
-loop = do
-  state@{ frontier, frontierSet, parents, goalTiles, statesExpanded, explored, maxFrontier, pastExplored } <- get
-  Queue.head frontier
-    `maybeDo`
-      \(Tuple _ (FrontierItem head)) -> do
-        let
-          goalTile = if (isGoal goalTiles head.childTile) then Just head.childTile else Nothing
-
-          newParents = case head.parentTile of
-            Just tile -> Map.insert (head.childTile) (Tuple tile head.action) parents
-            Nothing -> parents
-        put
+step :: AStarEffect (Either.Either Explored AStarResult)
+step = do
+  { goalTiles } <- ask
+  { frontier } <- get
+  case front frontier of
+    Just (FrontierItem item) -> do
+      let
+        tile = head (FrontierItem item)
+      if goalTest goalTiles tile then
+        pure (Either.Right $ Just item.path)
+      else do
+        modify_ \state ->
           state
-            { frontierSet = Set.delete head.childTile frontierSet
-            , frontier = fromMaybe Queue.empty (Queue.tail frontier)
-            , parents = newParents
-            , foundGoalTile = goalTile
-            , pastExplored = explored : pastExplored
+            { frontier = back frontier
+            , maxFrontier = max state.maxFrontier $ size frontier
+            , explored = Set.insert tile state.explored
             }
-        when (isNothing goalTile)
-          $ do
-              state <- get
-              put
-                state
-                  { statesExpanded = statesExpanded + 1
-                  , explored = Set.insert head.childTile explored
-                  , maxFrontier = max (Set.size frontierSet) maxFrontier
-                  }
-              pushFrontier (FrontierItem head)
-              loop
-        when (isJust goalTile) $ modify_ (\s -> s { pastExplored = reverse s.pastExplored })
+        explore (FrontierItem item)
+        { explored } <- get
+        pure $ Either.Left explored
+    Nothing -> pure $ Either.Right Nothing
+
+astar :: forall m. MonadAff m => AStarParams -> Producer Explored m AStarResult
+astar params =
+  let
+    initialState = { statesExpanded: 0, maxFrontier: 0, explored: Set.empty, frontier: Tuple PQueue.empty Set.empty }
+
+    go emitter = do
+      init
+      whileM_
+        ( step
+            >>= case _ of
+                Either.Left explored -> do
+                  lift $ emit emitter explored
+                  pure true
+                Either.Right result -> do
+                  lift $ close emitter result
+                  pure false
+        )
+        (pure unit)
+  in
+    produce' \emitter ->
+      void
+        $ evalRWST
+            (go emitter)
+            params
+            initialState
+
+manhattan :: NonEmptyList Tile -> Tile -> Number
+manhattan neList tile = go (toList neList) tile
   where
-  maybeDo = flip $ maybe (pure unit)
+  go ((Tile xGoal yGoal) : rest) (Tile x y) = min (toNumber (abs (x - xGoal) + abs (y - yGoal))) (go rest (Tile x y))
 
-  isGoal (x : xs) tile = if tile == x then true else isGoal xs tile
-
-  isGoal Nil _ = false
-
-genPath :: State AStarState AStarResult
-genPath = do
-  state@{ parents, foundGoalTile } <- get
-  case maybe (Nil) (findPath parents Nil) foundGoalTile of
-    Nil -> pure Nothing
-    path -> pure (Just path)
-  where
-  findPath parents path tile = case Map.lookup tile parents of
-    Just (Tuple t a) -> findPath parents ((Tuple t a) : path) t
-    Nothing -> path
-
-astar :: State AStarState AStarResult
-astar = do
-  initFrontier
-  loop
-  genPath
-
-manhattan :: List Tile -> Tile -> Number
-manhattan ((Tile xGoal yGoal) : rest) (Tile x y) = min (toNumber (abs (x - xGoal) + abs (y - yGoal))) (manhattan rest (Tile x y))
-
-manhattan ((Tile xGoal yGoal) : Nil) (Tile x y) = toNumber $ abs (x - xGoal) + abs (y - yGoal)
-
-manhattan Nil _ = infinity
+  go Nil _ = infinity

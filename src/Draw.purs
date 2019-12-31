@@ -1,17 +1,18 @@
 module Draw where
 
-import AStar (AStarResult, AStarState, Tile(..))
+import AStar (AStarResult, AStarState, Tile(..), Explored, AStarParams)
 import Control.Monad.Except.Trans (ExceptT(..), runExceptT, throwError)
 import Control.Monad.Reader.Trans (ReaderT(..), ask, lift, runReaderT)
 import Data.Either (Either(..))
+import Data.Foldable (length)
 import Data.Int (toNumber)
-import Data.List (List, foldMap, foldl, (!!))
+import Data.List (List, foldMap, (!!))
 import Data.Maybe (Maybe(..), maybe)
 import Data.Set (Set)
 import Data.Tuple (Tuple(..))
 import Effect (Effect)
 import Graphics.Canvas (CanvasElement, Context2D, Dimensions, Transform, clearRect, fillRect, getCanvasElementById, getContext2D, scale, setCanvasDimensions, setFillStyle, transform, translate)
-import Prelude (class Show, Unit, bind, const, discard, flip, negate, pure, unit, when, ($), (*), (+), (-), (/), (<<<), (<>))
+import Prelude (class Show, Unit, bind, clamp, const, discard, flip, negate, pure, unit, when, ($), (*), (+), (-), (/), (<<<), (>))
 import Web.HTML (window)
 import Web.HTML.Window (innerWidth, innerHeight)
 import Window.DevicePixelRatio (devicePixelRatio)
@@ -25,19 +26,15 @@ instance showErr :: Show Error where
   show OutOfBoundsError = "OutOfBoundsError"
 
 type DrawParams
-  = { iteration :: Int
-    , world :: Transform
-    , renderPath :: Boolean
-    , state :: AStarState
-    , result :: AStarResult
+  = { world :: Transform
+    , toDraw :: Either Explored AStarResult
+    , params :: AStarParams
     }
 
 type Config
-  = { state :: AStarState
-    , result :: AStarResult
+  = { toDraw :: Either Explored AStarResult
     , world :: Transform
-    , iteration :: Int
-    , renderPath :: Boolean
+    , params :: AStarParams
     , ctx :: Context2D
     , dimensions :: Dimensions
     , canvas :: CanvasElement
@@ -48,9 +45,9 @@ viewScale = 40.0
 
 getCanvas :: ExceptT Error Effect CanvasElement
 getCanvas = do
-  canvas <- lift $ getCanvasElementById "astar-vis"
-  case canvas of
-    Just canvas -> pure $ canvas
+  maybeCanvas <- lift $ getCanvasElementById "astar-vis"
+  case maybeCanvas of
+    Just canvas -> pure canvas
     Nothing -> throwError CanvasNotFoundError
 
 getWindowDimensions :: Boolean -> Effect (Dimensions)
@@ -62,11 +59,6 @@ getWindowDimensions withPixelRatio = do
   let
     r = if withPixelRatio then pixelRatio else 1.0
   pure ({ width: toNumber width * r, height: toNumber height * r })
-
-getExpandedStates :: List (Set Tile) -> Int -> Either Error (Set Tile)
-getExpandedStates pastExplored iteration = case pastExplored !! iteration of
-  Just s -> Right s
-  Nothing -> Left OutOfBoundsError
 
 setupCanvas :: CanvasElement -> Effect (Tuple Context2D Dimensions)
 setupCanvas canvas = do
@@ -97,25 +89,24 @@ inverseViewScale vec = do
 type Vector2
   = { x :: Number, y :: Number }
 
-drawExpandedStates :: Set Tile -> ReaderT Config Effect Unit
-drawExpandedStates states = do
+drawExplored :: Explored -> ReaderT Config Effect Unit
+drawExplored explored = do
   { ctx } <- ask
   lift $ setFillStyle ctx "#F3C13A"
-  lift $ foldMap (drawTile ctx) states
+  lift $ foldMap (drawTile ctx) explored
   where
   drawTile ctx (Tile x y) = fillRect ctx { x: toNumber x, y: toNumber y, width: 1.0, height: 1.0 }
 
 drawEndpoints :: ReaderT Config Effect Unit
 drawEndpoints = do
-  config@{ ctx, state } <- ask
+  { ctx, params } <- ask
   let
-    (Tile startX startY) = state.startTile
-  lift
-    $ do
-        setFillStyle ctx "#eb4034"
-        fillRect ctx { x: toNumber startX + (1.0 - scale) / 2.0, y: toNumber startY + (1.0 - scale) / 2.0, width: scale, height: scale }
-        setFillStyle ctx "#26A65B"
-        foldMap (drawGoal ctx) state.goalTiles
+    (Tile startX startY) = params.startTile
+  lift do
+    setFillStyle ctx "#eb4034"
+    fillRect ctx { x: toNumber startX + (1.0 - scale) / 2.0, y: toNumber startY + (1.0 - scale) / 2.0, width: scale, height: scale }
+    setFillStyle ctx "#26A65B"
+    foldMap (drawGoal ctx) params.goalTiles
   where
   scale = 0.7
 
@@ -123,42 +114,41 @@ drawEndpoints = do
 
 drawMap :: ReaderT Config Effect Unit
 drawMap = do
-  config@{ ctx, state } <- ask
-  lift
-    $ do
-        setFillStyle ctx "#757D75"
-        foldMap (\(Tile x y) -> fillRect ctx { x: toNumber x, y: toNumber y, width: 1.0, height: 1.0 }) state.map
+  { ctx, params } <- ask
+  lift do
+    setFillStyle ctx "#757D75"
+    foldMap (\(Tile x y) -> fillRect ctx { x: toNumber x, y: toNumber y, width: 1.0, height: 1.0 }) params.map
 
-drawPath :: ReaderT Config Effect Unit
-drawPath = do
-  config@{ ctx, result } <- ask
+drawPath :: AStarResult -> ReaderT Config Effect Unit
+drawPath result = do
+  { ctx } <- ask
   lift $ setFillStyle ctx "#1F4788"
   result `maybeDo` (lift <<< foldMap (\(Tuple (Tile x y) _) -> fillRect ctx { x: toNumber x, y: toNumber y, width: 1.0, height: 1.0 }))
   where
   maybeDo = flip $ maybe (pure unit)
 
-draw :: ExceptT Error (ReaderT Config Effect) Unit
+draw :: ReaderT Config Effect Unit
 draw = do
-  config <- lift $ ask
-  let
-    state = config.state
-  states <- liftEither $ getExpandedStates state.pastExplored config.iteration
-  lift applyTransformations
-  lift drawMap
-  lift $ drawExpandedStates states
-  when config.renderPath $ lift drawPath
-  lift drawEndpoints
-  where
-  liftEither eth = case eth of
-    Left e -> throwError e
-    Right r -> lift $ ReaderT $ const (pure r)
+  { toDraw } <- ask
+  applyTransformations
+  drawMap
+  case toDraw of
+    Left explored -> drawExplored explored
+    Right result -> drawPath result
+  drawEndpoints
 
 drawAStar :: DrawParams -> Effect (Either Error Unit)
-drawAStar { state, result, iteration, world, renderPath } =
-  runExceptT
-    $ do
-        canvas <- getCanvas
-        (Tuple ctx dimensions) <- lift $ setupCanvas canvas
-        let
-          config = { canvas, ctx, dimensions, state, result, iteration, world, renderPath }
-        ExceptT $ runReaderT (runExceptT draw) config
+drawAStar { world, toDraw, params } =
+  runExceptT do
+    canvas <- getCanvas
+    (Tuple ctx dimensions) <- lift $ setupCanvas canvas
+    let
+      config =
+        { canvas
+        , ctx
+        , dimensions
+        , toDraw
+        , world
+        , params
+        }
+    lift $ runReaderT draw config
