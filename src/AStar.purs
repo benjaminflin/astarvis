@@ -17,8 +17,9 @@ import Data.Ord (abs)
 import Data.PQueue as PQueue
 import Data.Set as Set
 import Data.Tuple (Tuple(..), fst, snd)
-import Effect (Effect)
+import Effect.Aff (Aff, launchAff_)
 import Effect.Aff.Class (class MonadAff)
+import Effect.Class (liftEffect)
 import Global (infinity)
 
 data Action
@@ -81,7 +82,7 @@ type AStarResult
   = Maybe Path
 
 type AStarEffect a
-  = RWST AStarParams Unit AStarState Effect a
+  = RWST AStarParams Unit AStarState Aff a
 
 front :: Frontier -> Maybe FrontierItem
 front (Tuple queue _) = snd <$> PQueue.head queue
@@ -168,16 +169,16 @@ astar params =
         ( step
             >>= case _ of
                 Either.Left explored -> do
-                  lift $ emit emitter explored
+                  lift $ liftEffect $ emit emitter explored
                   pure true
                 Either.Right result -> do
-                  lift $ close emitter result
+                  lift $ liftEffect $ close emitter result
                   pure false
         )
         (pure unit)
   in
     produce' \emitter ->
-      void
+      launchAff_
         $ evalRWST
             (go emitter)
             params

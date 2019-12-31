@@ -17,28 +17,26 @@ git clone https://github.com/benjaminflin/astar-vis.git
 cd astar-vis
 ```
 
-3. Install javascript dependencies using yarn or npm:
+1. Install javascript dependencies using yarn or :
 
 ```
 yarn
-npm
 ```
 
 4. Install purescript dependencies:
 
 ```
-npx bower install
+yarn spago install
 ```
+
 5. If running for the first time:
   
 ```
-yarn build
-npm run build
+yarn spago build
 ```
 
 6. Run the local server:
 
 ```
 yarn start
-npm start
 ```

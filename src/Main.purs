@@ -92,8 +92,7 @@ makeDrawProcess { ms, iteration, world, params, loop } output = do
 
     consumeOnce :: Consumer Explored Aff AStarResult
     consumeOnce = do
-      void $ waitUntil iteration
-      explored <- await
+      explored <- waitUntil (iteration + 1)
       void $ lift $ liftEffect $ drawAStar { params, world, toDraw: Left explored }
       pure Nothing
   result <- runProcess ((if loop then consumeForever else consumeOnce) `pullFrom` producer)
@@ -178,7 +177,7 @@ main = do
   let
     world = { m11: 1.0, m12: 0.0, m21: 0.0, m22: 1.0, m31: 0.0, m32: 0.0 }
   let
-    input = { params: astarParams, iteration: 0, world, loop: false, ms: 10.0 }
+    input = { params: astarParams, iteration: 0, world, loop: false, ms: 20.0 }
   drawProcess <- spawnDrawProcess input
   let
     initialAppState = { playing: false, mode: Drawing, drawProcess }
