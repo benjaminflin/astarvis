@@ -5,7 +5,7 @@
   "license": "MIT",
   "scripts": {
     "dev": "concurrently \"spago build --watch\" \"parcel index.html\"",
-    "start": "parcel index.html"
+    "start": "parcel build index.html; static-server dist"
   },
   "devDependencies": {
     "bower": "^1.8.8",
@@ -14,5 +14,8 @@
     "pulp": "^13.0.0",
     "purescript": "^0.13.5",
     "spago": "^0.13.0"
+  },
+  "dependencies": {
+    "static-server": "^2.2.1"
   }
 }

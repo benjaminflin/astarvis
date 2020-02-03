@@ -9,7 +9,10 @@ You can edit this file as you like.
     , "canvas"
     , "console"
     , "coroutines"
+    , "debug"
     , "effect"
+    , "foreign-object"
+    , "js-timers"
     , "monad-loops"
     , "ordered-collections"
     , "pqueue"
@@ -19,6 +22,7 @@ You can edit this file as you like.
     , "transformers"
     , "web-dom"
     , "web-html"
+    , "xstream"
     ]
 , packages = ./packages.dhall
 , sources = [ "src/**/*.purs", "test/**/*.purs" ]

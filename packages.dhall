@@ -136,6 +136,15 @@ let additions =
       , version =
           "v2.0.0"
       }
+  , xstream = 
+			{ dependencies = 
+				[ "js-timers"
+				, "aff-promise"		
+				]
+			, repo = "https://github.com/justinwoo/purescript-xstream"
+			, version = "v1.0.0"
+			}
+
   }
 
 

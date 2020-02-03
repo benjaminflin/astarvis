@@ -8,16 +8,17 @@ import Control.Monad.State (get, modify, runStateT)
 import Control.Monad.State.Trans (lift, StateT)
 import Data.Either (Either(..))
 import Data.Int (floor)
-import Data.List (List(..), (:))
+import Data.List (List(..), range, (:))
 import Data.List.NonEmpty (singleton)
 import Data.Maybe (Maybe(..), fromJust, isJust)
 import Data.Set (fromFoldable)
 import Data.Set as Set
 import Draw (drawAStar, inverseView, inverseViewScale)
 import Effect (Effect)
-import Effect.Aff (Aff, Fiber, Milliseconds(..), delay, killFiber, launchAff, launchAff_)
+import Effect.Aff (Aff, Fiber, Milliseconds(..), delay, forkAff, killFiber, launchAff, launchAff_)
 import Effect.Aff.Class (class MonadAff)
 import Effect.Class (liftEffect)
+import Effect.Class.Console (log)
 import Effect.Exception (error)
 import Effect.Ref (Ref, new, read)
 import Effect.Ref as Ref
@@ -95,6 +96,7 @@ makeDrawProcess { ms, iteration, world, params, loop } output = do
       explored <- waitUntil (iteration + 1)
       void $ lift $ liftEffect $ drawAStar { params, world, toDraw: Left explored }
       pure Nothing
+  void $ liftEffect $ drawAStar { params, world, toDraw: Right Nothing }
   result <- runProcess ((if loop then consumeForever else consumeOnce) `pullFrom` producer)
   when (isJust result) do
     void $ liftEffect $ drawAStar { params, world, toDraw: Right result }
