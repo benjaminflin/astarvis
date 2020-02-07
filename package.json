@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "node": "^13.7.0",
+    "nodemon": "^2.0.2",
     "static-server": "^2.2.1"
   }
 }
