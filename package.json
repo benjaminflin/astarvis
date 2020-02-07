@@ -16,6 +16,7 @@
     "spago": "^0.13.0"
   },
   "dependencies": {
+    "node": "^13.7.0",
     "static-server": "^2.2.1"
   }
 }

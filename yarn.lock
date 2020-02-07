@@ -3970,6 +3970,11 @@ node-addon-api@^1.7.1:
   resolved "https://registry.yarnpkg.com/node-addon-api/-/node-addon-api-1.7.1.tgz#cf813cd69bb8d9100f6bdca6755fc268f54ac492"
   integrity sha512-2+DuKodWvwRTrCfKOeR24KIc5unKjOh8mz17NCzVnHWfjAdDqbfbjqh7gUT+BkXBRQM52+xCHciKWonJ3CbJMQ==
 
+node-bin-setup@^1.0.0:
+  version "1.0.6"
+  resolved "https://registry.yarnpkg.com/node-bin-setup/-/node-bin-setup-1.0.6.tgz#4b5c9bb937ece702d7069b36ca78af4684677528"
+  integrity sha512-uPIxXNis1CRbv1DwqAxkgBk5NFV3s7cMN/Gf556jSw6jBvV7ca4F9lRL/8cALcZecRibeqU+5dFYqFFmzv5a0Q==
+
 node-forge@^0.7.1:
   version "0.7.6"
   resolved "https://registry.yarnpkg.com/node-forge/-/node-forge-0.7.6.tgz#fdf3b418aee1f94f0ef642cd63486c77ca9724ac"
@@ -4035,6 +4040,13 @@ node-static@^0.7.11:
     colors ">=0.6.0"
     mime "^1.2.9"
     optimist ">=0.3.4"
+
+node@^13.7.0:
+  version "13.7.0"
+  resolved "https://registry.yarnpkg.com/node/-/node-13.7.0.tgz#222fd622b9bfc2570625ee8151b54a0d611574e1"
+  integrity sha512-HS7bU1UEUQ8d7auEX6mRgI0fpJ6xF9aM5HELOnLgVVPaDtroC2fy4+ScYxzF1RRNMpZL9k5d7NLF9Yf9zGewAw==
+  dependencies:
+    node-bin-setup "^1.0.0"
 
 nopt@^4.0.1:
   version "4.0.1"
