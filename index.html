@@ -1,68 +1,70 @@
 <!DOCTYPE html>
 <html>
+  <head>
+    <title>A* Visualization</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
 
-<head>
-  <title>A* Visualization</title>
-  <style>
-    html,
-    body {
-      margin: 0;
-      padding: 0;
-    }
+      canvas {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: -1;
+      }
 
-    canvas {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      z-index: -1;
-    }
+      .toolbar {
+        position: fixed;
+        background: #eee;
+        width: 100%;
+      }
 
-    .toolbar {
-      position: fixed;
-      background: #eee;
-      width: 100%;
-    }
+      button {
+        border: none;
+        background: none;
+        margin: 1rem;
+        height: 1rem;
+        padding: 0;
+        vertical-align: top;
+      }
 
-    button {
-      border: none;
-      background: none;
-      margin: 1rem;
-      height: 1rem;
-      padding: 0;
-      vertical-align: top;
-    }
+      button > span {
+        text-transform: uppercase;
+      }
 
-    button>span {
-      text-transform: uppercase;
-    }
+      .play .play-icon,
+      .pause .pause-icon {
+        display: block;
+      }
+      .play .pause-icon,
+      .pause .play-icon {
+        display: none;
+      }
+      .icon {
+        width: 1rem;
+        height: 1rem;
+      }
+    </style>
+  </head>
 
-    .play>img {
-      content: url("res/play.svg");
-    }
-
-    .pause>img {
-      content: url("res/pause.svg");
-    }
-
-    .icon {
-      width: 1rem;
-      height: 1rem;
-    }
-  </style>
-</head>
-
-<body>
-  <div class="toolbar">
-    <button id="move"><img src="res/move.svg" class="icon"></button>
-    <button id="draw"><img src="res/pen-tool.svg" class="icon"></button>
-    <button id="erase"><img src="res/eraser.svg" class="icon"></button>
-    <button id="play" class="play"><img class="icon"></button>
-    <button id="reset"><span>reset</span></button>
-  </div>
-  <canvas id="astar-vis"></canvas>
-  <script src="index.js"></script>
-</body>
-
+  <body>
+    <div class="toolbar">
+      <button id="move"><img src="res/move.svg" class="icon" /></button>
+      <button id="draw"><img src="res/pen-tool.svg" class="icon" /></button>
+      <button id="erase"><img src="res/eraser.svg" class="icon" /></button>
+      <button id="play" class="play">
+        <img class="icon play-icon" src="res/play.svg" />
+        <img class="icon pause-icon" src="res/pause.svg" />
+      </button>
+      <button id="reset"><span>reset</span></button>
+    </div>
+    <canvas id="astar-vis"></canvas>
+    <script src="index.js"></script>
+  </body>
 </html>
+

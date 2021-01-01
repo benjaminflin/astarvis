@@ -5,16 +5,17 @@ You can edit this file as you like.
 { name = "astar-vis-purescript"
 , dependencies =
     [ "aff"
-    , "aff-coroutines"
+    , "aff-streams"
+    , "avar"
     , "canvas"
     , "console"
-    , "coroutines"
     , "debug"
     , "effect"
     , "foreign-object"
     , "js-timers"
     , "monad-loops"
     , "ordered-collections"
+    , "partial"
     , "pqueue"
     , "prelude"
     , "psci-support"
@@ -22,7 +23,8 @@ You can edit this file as you like.
     , "transformers"
     , "web-dom"
     , "web-html"
-    , "xstream"
+    , "web-events"
+    , "web-uievents"
     ]
 , packages = ./packages.dhall
 , sources = [ "src/**/*.purs", "test/**/*.purs" ]
