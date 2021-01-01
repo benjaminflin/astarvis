@@ -1,7 +1,6 @@
 module UI where
 
-import Prelude (class Show, bind, const, discard, pure, show, ($), (<$), (<$>), (<<<), (<>), (=<<), (==))
-
+import Prelude (class Show, bind, const, discard, pure, show, ($), (<$), (<$>), (<<<), (<>), (=<<), (==), (-))
 import Data.AffStream
 import Data.AffStream as S
 
@@ -31,10 +30,6 @@ data Tool
     | Eraser
 
 data Coords = Coords Int Int
-
-data Event'
-    = SetTool Tool
-    | MouseMove Coords
 
 data Action 
     = Pan Coords 
@@ -87,25 +82,42 @@ eventS id evt = fromCallback $ \emit -> liftEffect $ do
     t <- toEventTarget <<< fromJust' <$> elementById id 
     addEventListener (EventType evt) l false t
 
+
 toolS :: Stream Tool 
 toolS = 
     (Move <$ eventS "move" "click") 
     <> (Pen <$ eventS "draw" "click")
     <> (Eraser <$ eventS "erase" "click")
 
-canvasS :: Stream Coords
-canvasS = clientCoords <$> (f <?> eventS "astar-vis" "mousemove")
+mouseMoveS :: Stream Coords
+mouseMoveS = clientCoords <$> (f <?> eventS "astar-vis" "mousemove")
     where f = (_ == 1) <<< buttons <<< fromJust' <<< fromEvent
 
-μ :: Stream Action
-μ = toolS >>- ((_ <$> canvasS) <<< tool2Action)
+data MouseClick 
+    = MouseDown Coords
+    | MouseUp Coords
+
+mouseDownS :: Stream MouseClick
+mouseDownS = MouseDown <<< clientCoords <$> eventS "astar-vis" "mousedown" 
+
+mouseUpS :: Stream MouseClick
+mouseUpS = MouseUp <<< clientCoords <$> eventS "astar-vis" "mouseup" 
+
+panS :: Stream Coords
+panS = (mouseDownS <> mouseUpS) >>- f 
+    where f (MouseDown (Coords x y)) 
+              = (\(Coords z w) -> Coords (x - z) (y - w)) <$> mouseMoveS 
+          f _ = empty 
+
+toolS' :: Stream Action
+toolS' = toolS >>- tool2Action
     where 
-    tool2Action (Move) = Pan 
-    tool2Action (Pen) = Draw 
-    tool2Action (Eraser) = Erase 
+    tool2Action (Move) = Pan <$> panS
+    tool2Action (Pen) = Draw <$> mouseMoveS 
+    tool2Action (Eraser) = Erase <$> mouseMoveS 
 
 playS :: Stream Action
-playS = scan (const <<< toggle) Play (eventS "play" "click")
+playS = scan (const <<< toggle) Pause (eventS "play" "click")
     where toggle Play = Pause
           toggle Pause = Play
           toggle _ = Pause
@@ -113,6 +125,5 @@ playS = scan (const <<< toggle) Play (eventS "play" "click")
 resetS :: Stream Action
 resetS = Reset <$ (eventS "reset" "click")
 
-
 actionS :: Stream Action
-actionS = μ <> playS <> resetS
+actionS = toolS' <> playS <> resetS
