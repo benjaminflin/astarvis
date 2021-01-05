@@ -1,17 +1,13 @@
 module UI where
 
-import Prelude (class Show, bind, const, discard, pure, show, ($), (<$), (<$>), (<<<), (<>), (=<<), (==), (-))
+import Prelude (class Show, bind, const, show, ($), (<$), (<$>), (<<<), (<>), (=<<), (==), (-))
+import Control.Alt ((<|>))
 import Data.AffStream
-import Data.AffStream as S
-
-import Control.Monad.Rec.Class (tailRecM, Step(..))
-import Data.Array (head)
 import Data.Maybe (Maybe, fromJust)
 import Effect (Effect)
 import Effect.Class (liftEffect)
 import Effect.Aff (launchAff_)
 import Partial.Unsafe (unsafePartial)
-
 import Web.DOM (Element)
 import Web.DOM.NonElementParentNode (getElementById)
 import Web.DOM.Document (toNonElementParentNode)
@@ -51,15 +47,6 @@ instance showAction :: Show Action where
     show (Reset) = "Reset"
 
 
-scan :: forall a b. (b -> a -> b) -> b -> Stream a -> Stream b
-scan f x0 s = fromCallback $ \emit -> tailRecM go { x: x0, emit }
-    where
-    go { x, emit } = do
-        a <- fromJust' <<< head <$> S.take 1 s 
-        let b = f x a
-        emit b
-        pure $ Loop { x: b, emit }
-
 fromJust' :: forall a. Maybe a -> a
 fromJust' a = unsafePartial $ fromJust a
 
@@ -86,8 +73,8 @@ eventS id evt = fromCallback $ \emit -> liftEffect $ do
 toolS :: Stream Tool 
 toolS = 
     (Move <$ eventS "move" "click") 
-    <> (Pen <$ eventS "draw" "click")
-    <> (Eraser <$ eventS "erase" "click")
+    <|> (Pen <$ eventS "draw" "click")
+    <|> (Eraser <$ eventS "erase" "click")
 
 mouseMoveS :: Stream Coords
 mouseMoveS = clientCoords <$> (f <?> eventS "astar-vis" "mousemove")
@@ -104,7 +91,7 @@ mouseUpS :: Stream MouseClick
 mouseUpS = MouseUp <<< clientCoords <$> eventS "astar-vis" "mouseup" 
 
 panS :: Stream Coords
-panS = (mouseDownS <> mouseUpS) >>- f 
+panS = (mouseDownS <|> mouseUpS) >>- f 
     where f (MouseDown (Coords x y)) 
               = (\(Coords z w) -> Coords (x - z) (y - w)) <$> mouseMoveS 
           f _ = empty 
@@ -126,4 +113,4 @@ resetS :: Stream Action
 resetS = Reset <$ (eventS "reset" "click")
 
 actionS :: Stream Action
-actionS = toolS' <> playS <> resetS
+actionS = toolS' <|> playS <|> resetS
