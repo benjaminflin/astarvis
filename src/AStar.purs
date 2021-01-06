@@ -7,8 +7,9 @@ import Control.Apply (lift2)
 import Control.Monad.Rec.Loops (whileM_)
 import Control.MonadZero (guard)
 import Control.Monad.RWS (RWST, evalRWST, ask, get, gets, modify_)
-import Data.Array (filter)
+import Data.Array (filter, fromFoldable)
 import Data.Tuple (snd)
+import Data.Int (toNumber)
 import Data.Foldable (all, foldl)
 import Data.Maybe (Maybe(..), fromMaybe, maybe)
 import Data.Either (choose, isRight, Either(..))
@@ -21,8 +22,11 @@ import Data.Set as S
 import Data.Newtype (class Newtype, unwrap, over)
 import Effect.Aff (Aff)
 import Effect.Aff.Class (liftAff)
+import Debug.Trace (traceM)
 
 data Tile = Tile Int Int
+instance showTile :: Show Tile where
+    show (Tile x y) = "(" <> show x <> ", " <> show y <> ")"
 derive instance eqTile :: Eq Tile
 derive instance ordTile :: Ord Tile
 
@@ -38,6 +42,9 @@ derive instance newtypePath :: Newtype Path _
 derive instance eqPath :: Eq Path
 instance ordPath :: Ord Path where
     compare (Path a) (Path b) = compare a.cost b.cost
+
+instance showPath :: Show Path where
+    show (Path { trail, cost }) = show (fromFoldable trail) <> " " <> show cost
 
 type Frontier = 
     { queue :: PQueue Number Path 
@@ -60,7 +67,8 @@ type Result = Maybe Path
 type AStar a = RWST Params Unit State Aff a 
 
 appendTile :: Number -> Tile -> Path -> Path
-appendTile c t = over Path (\p -> p { cost = p.cost + c, trail = N.cons t p.trail }) 
+appendTile c t = over Path (\p -> p { cost = p.cost + c + depth p, trail = N.cons t p.trail }) 
+    where depth p = toNumber $ N.length p.trail + 1
 
 tile :: Path -> Tile
 tile = N.head <<< _.trail <<< unwrap
@@ -94,7 +102,7 @@ explore :: Path -> AStar Unit
 explore p = do
     { map, heuristic, goal } <- ask
     { explored, frontier } <- get
-    let check t = all (_ $ t) $ flip S.member <$> [map, explored, frontier.set]
+    let check t = all (_ $ t) $ not <<< flip S.member <$> [map, explored, frontier.set]
         succs' = filter check <<< succs <<< tile $ p
         paths = flip (appendTile =<< heuristic goal) p <$> succs' 
     modify_ _ { frontier = foldl (flip push) frontier paths }    
@@ -103,26 +111,33 @@ step :: AStar (Either Result State)
 step = do
     { goal } <- ask
     path <- gets $ front <<< _.frontier
-    let explore' = lift2 (<*) explore modifyState <$> path 
-    let res = Just <$> guard' ((_ == goal) <<< tile) path
+    let explore' = lift2 (<*) modifyState explore <$> path 
     st <- maybe (pure Nothing) ((Just <$> get) <* _) explore'
-    pure $ fromMaybe (Left Nothing) $ choose res st 
+    let res = guard' ((_ == goal) <<< tile) path
+    pure $ toEither res st 
     where 
         modifyState p = modify_ $ \s -> 
                             s { frontier = back s.frontier
                               , explored = S.insert (tile p) s.explored
                               }
         guard' f = (=<<) $ lift2 (<*) pure (guard <<< f)
+        toEither (Just r) _ = Left $ Just r 
+        toEither _ (Just s) = Right s
+        toEither _ _ = Left Nothing 
 
 astarS :: Stream Params -> Stream (Either Result State)
 astarS s = let bind = (>>-) in do 
     params <- s 
     fromCallback $ eval params <<< whileM' <<< step'
     where
-    initialState = { frontier: { queue: Q.empty, set: S.empty }
-                   , explored: S.empty
-                   }
-    eval p a = void $ evalRWST a p initialState 
+    initialState p = { frontier: { queue: Q.singleton cost 
+                                            $ Path { trail: N.singleton p.start, cost }
+                                 , set: S.singleton p.start 
+                                 }
+                     , explored: S.empty
+                     }
+                     where cost = p.heuristic p.start p.goal
+    eval p a = void $ evalRWST a p $ initialState p
     whileM' = flip whileM_ (pure unit)
     step' emit = lift2 (<*) (pure <<< isRight) (liftAff <<< emit) =<< step 
 
