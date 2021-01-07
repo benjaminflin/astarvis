@@ -2,33 +2,32 @@ module Main where
 
 import Prelude
 import Math (sqrt)
-import Data.Ord (abs)
 import Data.Int (toNumber)
-import Data.Set as S
+import Data.HashSet as S
 import Effect.Aff (launchAff_)
-import Data.AffStream (consume, (<?>), scan, take)
-import AStar (Tile(..), Params, astarS)
+import Data.AffStream (consume, scan)
+import AStar (Tile(..), astarS)
+import Data.Vec (vec2, dotProduct)
 import UI (actionS, Action(..)) 
 import Effect (Effect)
 import Effect.Console (log)
 import Effect.Class (liftEffect)
 
 main :: Effect Unit
-main = launchAff_ $ consume (liftEffect <<< log <<< show) $ astarS (pure initialParams) 
+main = launchAff_ $ consume (liftEffect <<< log <<< show) $ astarS $ scan f initialParams actionS
     where
-    isEdit (Draw _) = true
-    isEdit (Erase _) = true
-    isEdit _ = false
-
+    f a (Draw v) = a { map = S.insert (Tile v) a.map }
+    f a (Erase v) = a { map = S.delete (Tile v) a.map }
+    f a _ = a
     initialParams
-        = { map: S.fromFoldable [ Tile 0 1
-                                , Tile 1 1
-                                , Tile 2 1 
-                                , Tile 3 1
-                                , Tile 4 1
+        = { map: S.fromFoldable $ Tile <$> 
+                                [ vec2 0 1
+                                , vec2 1 1
+                                , vec2 2 1 
+                                , vec2 3 1
+                                , vec2 4 1
                                 ]
-          , start: Tile 0 0
-          , goal: Tile 2 2
-          , heuristic: (\(Tile x y) (Tile z w) -> sqrt $ toNumber $ (x-z)*(x-z) + (y-w)*(y-w))
+          , start: Tile $ vec2 0 0
+          , goal: Tile $ vec2 2 2
+          , heuristic: \(Tile v) (Tile v') -> sqrt $ toNumber $ join dotProduct (v - v')
           } 
-    

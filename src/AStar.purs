@@ -17,18 +17,24 @@ import Data.List.Types (NonEmptyList)
 import Data.List.NonEmpty as N
 import Data.PQueue (PQueue)
 import Data.PQueue as Q
-import Data.Set (Set) 
-import Data.Set as S
+import Data.HashSet (HashSet) 
+import Data.HashSet as S
+import Data.Hashable 
+import Data.Typelevel.Num (D2, d0, d1) 
+import Data.Vec (Vec, toArray, (!!), vec2, dotProduct)
 import Data.Newtype (class Newtype, unwrap, over)
 import Effect.Aff (Aff)
 import Effect.Aff.Class (liftAff)
 import Debug.Trace (traceM)
 
-data Tile = Tile Int Int
-instance showTile :: Show Tile where
-    show (Tile x y) = "(" <> show x <> ", " <> show y <> ")"
-derive instance eqTile :: Eq Tile
-derive instance ordTile :: Ord Tile
+type Set = HashSet
+newtype Tile = Tile (Vec D2 Int)
+
+derive instance newtypeTile :: Newtype Tile _
+instance hashableEq :: Hashable Tile where
+    hash = hash <<< toArray <<< unwrap
+derive newtype instance tileEq :: Eq Tile 
+derive newtype instance tileShow :: Show Tile
 
 type TileSet = Set Tile 
 type Trail = NonEmptyList Tile
@@ -91,12 +97,15 @@ push p'@(Path p) f
         }
 
 succs :: Tile -> Array Tile
-succs (Tile x y) 
-    = [ Tile (x+1) y
-      , Tile (x-1) y
-      , Tile x (y+1)
-      , Tile x (y-1)
+succs (Tile t)
+    = Tile <$> 
+      [ vec2 (x+1) y
+      , vec2 (x-1) y
+      , vec2 x (y+1)
+      , vec2 x (y-1)
       ] 
+      where x = t !! d0
+            y = t !! d1
 
 explore :: Path -> AStar Unit
 explore p = do
@@ -105,6 +114,7 @@ explore p = do
     let check t = all (_ $ t) $ not <<< flip S.member <$> [map, explored, frontier.set]
         succs' = filter check <<< succs <<< tile $ p
         paths = flip (appendTile =<< heuristic goal) p <$> succs' 
+    traceM $ show $ succs $ tile p
     modify_ _ { frontier = foldl (flip push) frontier paths }    
 
 step :: AStar (Either Result State)
@@ -112,8 +122,8 @@ step = do
     { goal } <- ask
     path <- gets $ front <<< _.frontier
     let explore' = lift2 (<*) modifyState explore <$> path 
+        res = guard' ((_ == goal) <<< tile) path
     st <- maybe (pure Nothing) ((Just <$> get) <* _) explore'
-    let res = guard' ((_ == goal) <<< tile) path
     pure $ toEither res st 
     where 
         modifyState p = modify_ $ \s -> 
@@ -130,13 +140,13 @@ astarS s = let bind = (>>-) in do
     params <- s 
     fromCallback $ eval params <<< whileM' <<< step'
     where
-    initialState p = { frontier: { queue: Q.singleton cost 
-                                            $ Path { trail: N.singleton p.start, cost }
+    initialState p = { frontier: { queue: newQ { trail: N.singleton p.start, cost }
                                  , set: S.singleton p.start 
                                  }
                      , explored: S.empty
                      }
                      where cost = p.heuristic p.start p.goal
+                           newQ = Q.singleton cost <<< Path
     eval p a = void $ evalRWST a p $ initialState p
     whileM' = flip whileM_ (pure unit)
     step' emit = lift2 (<*) (pure <<< isRight) (liftAff <<< emit) =<< step 

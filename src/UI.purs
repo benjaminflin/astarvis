@@ -3,7 +3,9 @@ module UI where
 import Prelude (class Show, bind, const, show, ($), (<$), (<$>), (<<<), (<>), (=<<), (==), (-))
 import Control.Alt ((<|>))
 import Data.AffStream
+import Data.Vec (Vec, vec2)
 import Data.Maybe (Maybe, fromJust)
+import Data.Typelevel.Num (D2)
 import Effect (Effect)
 import Effect.Class (liftEffect)
 import Effect.Aff (launchAff_)
@@ -19,24 +21,18 @@ import Web.HTML.Window (document)
 import Web.HTML (window)
 import Web.UIEvent.MouseEvent (fromEvent, clientX, clientY, buttons)
 
-
 data Tool 
     = Move
     | Pen
     | Eraser
 
-data Coords = Coords Int Int
-
 data Action 
-    = Pan Coords 
-    | Draw Coords 
-    | Erase Coords 
+    = Pan (Vec D2 Int)
+    | Draw (Vec D2 Int)
+    | Erase (Vec D2 Int) 
     | Play
     | Pause
     | Reset
-
-instance showCoords :: Show Coords where
-    show (Coords i j) = "(" <> show i <> ", " <> show j <> ")"
 
 instance showAction :: Show Action where
     show (Pan c) = "Pan: " <> show c 
@@ -58,10 +54,10 @@ elementById id =
     =<< document 
     =<< window 
 
-clientCoords :: Event -> Coords
+clientCoords :: Event -> Vec D2 Int
 clientCoords = mkCoords <<< fromJust' <<< fromEvent
     where
-    mkCoords e = Coords (clientX e) (clientY e)
+    mkCoords e = vec2 (clientX e) (clientY e)
 
 eventS :: String -> String -> Stream Event
 eventS id evt = fromCallback $ \emit -> liftEffect $ do
@@ -76,13 +72,13 @@ toolS =
     <|> (Pen <$ eventS "draw" "click")
     <|> (Eraser <$ eventS "erase" "click")
 
-mouseMoveS :: Stream Coords
+mouseMoveS :: Stream (Vec D2 Int)
 mouseMoveS = clientCoords <$> (f <?> eventS "astar-vis" "mousemove")
     where f = (_ == 1) <<< buttons <<< fromJust' <<< fromEvent
 
 data MouseClick 
-    = MouseDown Coords
-    | MouseUp Coords
+    = MouseDown (Vec D2 Int)
+    | MouseUp (Vec D2 Int)
 
 mouseDownS :: Stream MouseClick
 mouseDownS = MouseDown <<< clientCoords <$> eventS "astar-vis" "mousedown" 
@@ -90,10 +86,10 @@ mouseDownS = MouseDown <<< clientCoords <$> eventS "astar-vis" "mousedown"
 mouseUpS :: Stream MouseClick
 mouseUpS = MouseUp <<< clientCoords <$> eventS "astar-vis" "mouseup" 
 
-panS :: Stream Coords
+panS :: Stream (Vec D2 Int)
 panS = (mouseDownS <|> mouseUpS) >>- f 
-    where f (MouseDown (Coords x y)) 
-              = (\(Coords z w) -> Coords (x - z) (y - w)) <$> mouseMoveS 
+    where f (MouseDown s) 
+              = (s - _) <$> mouseMoveS 
           f _ = empty 
 
 toolS' :: Stream Action
