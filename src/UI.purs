@@ -1,6 +1,6 @@
 module UI where
 
-import Prelude (class Show, bind, const, show, ($), (<$), (<$>), (<<<), (<>), (=<<), (==), (-))
+import Prelude
 import Control.Alt ((<|>))
 import Data.AffStream
 import Data.Vec (Vec, vec2)
@@ -33,6 +33,8 @@ data Action
     | Play
     | Pause
     | Reset
+
+derive instance eqAction :: Eq Action
 
 instance showAction :: Show Action where
     show (Pan c) = "Pan: " <> show c 

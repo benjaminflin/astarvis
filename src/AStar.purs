@@ -25,7 +25,7 @@ import Data.Vec (Vec, toArray, (!!), vec2, dotProduct)
 import Data.Newtype (class Newtype, unwrap, over)
 import Effect.Aff (Aff)
 import Effect.Aff.Class (liftAff)
-import Debug.Trace (traceM)
+import Data.Tuple.Nested
 
 type Set = HashSet
 newtype Tile = Tile (Vec D2 Int)
@@ -114,7 +114,6 @@ explore p = do
     let check t = all (_ $ t) $ not <<< flip S.member <$> [map, explored, frontier.set]
         succs' = filter check <<< succs <<< tile $ p
         paths = flip (appendTile =<< heuristic goal) p <$> succs' 
-    traceM $ show $ succs $ tile p
     modify_ _ { frontier = foldl (flip push) frontier paths }    
 
 step :: AStar (Either Result State)
@@ -135,10 +134,10 @@ step = do
         toEither _ (Just s) = Right s
         toEither _ _ = Left Nothing 
 
-astarS :: Stream Params -> Stream (Either Result State)
+astarS :: Stream Params -> Stream (Params /\ Either Result State)
 astarS s = let bind = (>>-) in do 
     params <- s 
-    fromCallback $ eval params <<< whileM' <<< step'
+    fromCallback $ eval params <<< whileM' <<< (step' params)
     where
     initialState p = { frontier: { queue: newQ { trail: N.singleton p.start, cost }
                                  , set: S.singleton p.start 
@@ -149,6 +148,9 @@ astarS s = let bind = (>>-) in do
                            newQ = Q.singleton cost <<< Path
     eval p a = void $ evalRWST a p $ initialState p
     whileM' = flip whileM_ (pure unit)
-    step' emit = lift2 (<*) (pure <<< isRight) (liftAff <<< emit) =<< step 
+    step' params emit = do
+        r <- step
+        liftAff $ emit (params /\ r)
+        pure $ isRight r
 
 
