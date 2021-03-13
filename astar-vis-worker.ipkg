@@ -1,0 +1,8 @@
+package astar-vis-worker
+
+main = Worker 
+executable = "worker.js"
+opts = "--codegen javascript"
+sourcedir = "src"
+builddir = "build"
+outputdir = "output"

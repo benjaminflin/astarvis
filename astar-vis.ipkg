@@ -1,0 +1,9 @@
+package astar-vis
+
+main = Main 
+executable = "main.js"
+opts = "--codegen javascript"
+sourcedir = "src"
+builddir = "build"
+outputdir = "output"
+depends = contrib
